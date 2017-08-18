@@ -9,6 +9,7 @@
 
 #include "Arduino.h"
 #include "LCD_Keypad_Reader.h"
+#include "Math.h"
 
 static int DEFAULT_KEY_PIN = 0;
 
@@ -54,11 +55,24 @@ int LCD_Keypad_Reader::ActRepeatRate()
   if (RepeatRate < keyRepeatRateHigh){
     RepeatRate = keyRepeatRateHigh;
     if(_numberOfIncrementations > bonusGearTrigger){
-      RepeatRate = keyRepeatRateBonusGear;
+      RepeatRate = KeyRepeatRateBonusGear;
     }
   }
-  _numberOfIncrementations++;
+  //_numberOfIncrementations++;
   return RepeatRate;
+}
+
+int LCD_Keypad_Reader::ActNumShotsKeyRepeatRate()
+{
+	if (_numberOfIncrementations / ceil(_numberOfIncrementations / 10.0) == 10 && NumShotsKeyRepeatRate < numShotsKeyRepeatRateMax) 
+	{
+		NumShotsKeyRepeatRate = NumShotsKeyRepeatRate*numShotsStepIncrementFactor;
+		if (NumShotsKeyRepeatRate > numShotsKeyRepeatRateMax) {
+			NumShotsKeyRepeatRate == numShotsKeyRepeatRateMax;
+		}
+	}
+	_numberOfIncrementations++;
+	return NumShotsKeyRepeatRate;
 }
 
 int LCD_Keypad_Reader::getKey()
@@ -88,6 +102,7 @@ int LCD_Keypad_Reader::categorizeKey(int analogKeyValue){
   }
   else{
     categorizedKeyValue = NO_KEY;
+	NumShotsKeyRepeatRate = numShotsKeyRepeatRateStart;
     _numberOfIncrementations = 0;
   }
 

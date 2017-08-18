@@ -27,8 +27,12 @@ class LCD_Keypad_Reader
     int getKey();
     int categorizeKey(int);
     int RepeatRate;
-    const int keyRepeatRateBonusGear = -1;
+    const int KeyRepeatRateBonusGear = -1;
     int ActRepeatRate();
+
+	int NumShotsKeyRepeatRate;
+	int ActNumShotsKeyRepeatRate();
+
   private:
     int _keyPin;
     int _threshold;
@@ -45,5 +49,9 @@ const  int keyRepeatRateStep      =  60;      // speeding up steps
 const  int keyRepeatRateSlow      = 500;      // SLOW speed when held, key repeats 1000 / keyRepeatRate times per second
 const  int keyRepeatRateHigh      = 100;      // HIGH speed when held, key repeats 1000 / keyRepeatRate times per second
 const  int bonusGearTrigger       =  50;      // The number of key samples it should take before the bonus gear kicks in
+
+const  int numShotsKeyRepeatRateStart   =  1;    // The steps each button click adds to the "number of shots" menu
+const  int numShotsKeyRepeatRateMax     =  250; // The max number of steps each button click can ever add to the "number of shots" menu
+const  int numShotsStepIncrementFactor  = 10;    // The factor of which the dynamic incrementation should raise in the "number of shots" menu
 
 #endif
