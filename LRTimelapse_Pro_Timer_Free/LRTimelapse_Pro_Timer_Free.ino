@@ -1,3 +1,4 @@
+
 /*
   Pro-Timer Free
   Gunther Wegner
@@ -9,8 +10,11 @@
 
 #include <LiquidCrystal.h>
 #include "LCD_Keypad_Reader.h"			// credits to: http://www.hellonull.com/?p=282
+#include <EEPROM.h> 					// used for saving variables to the small flash drive on the Arduino Uno
+#include "TimeLib.h"					// Version 1.5 in the files included in this project. Source: https://github.com/PaulStoffregen/Time
+#include "TimeAlarms.h"					// Version 1.5 in the files included in this project. Source: https://github.com/PaulStoffregen/TimeAlarms
 
-const String CAPTION = "Pro-Timer 0.88";
+const String CAPTION = "Long term timer";
 
 LCD_Keypad_Reader keypad;
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);	//Pin assignments for SainSmart LCD Keypad Shield
@@ -27,15 +31,12 @@ const int BACK_LIGHT = 10;
 const float RELEASE_TIME_DEFAULT = 0.1;			// default shutter release time for camera
 const float MIN_DARK_TIME = 0.5;
 
-//const int keyRepeatRate = 100;			// when held, key repeats 1000 / keyRepeatRate times per second
-
 int localKey = 0;						// The current pressed key
 int lastKeyPressed = -1;				// The last pressed key
 
 unsigned long lastKeyCheckTime = 0;
 unsigned long lastKeyPressTime = 0;
 
-//int sameKeyCount = 0;
 float releaseTime = RELEASE_TIME_DEFAULT;			        // Shutter release time for camera
 unsigned long previousMillis = 0;		// Timestamp of last shutter release
 unsigned long runningTime = 0;
@@ -79,6 +80,12 @@ int currentMenu = 0;					// the currently selected menu
 int settingsSel = 1;					// the currently selected settings option
 int mode = MODE_M;            // mode: M or Bulb
 
+// Timer stuff
+
+#define TIME_HEADER  "T"   // Header tag for serial time sync message
+#define TIME_REQUEST  7    // ASCII bell character requests a time sync message 
+
+
 /**
    Initialize everything
 */
@@ -91,11 +98,28 @@ void setup() {
   lcd.clear();
   lcd.setCursor(0, 0);
 
+  Serial.begin(9600);
+  setSyncProvider(requestSync);
+  
+
   // print welcome screen))
+  /*
   lcd.print("LRTimelapse.com");
   lcd.setCursor(0, 1);
   lcd.print( CAPTION );
-
+  */
+  time_t t = now();
+  lcd.print(dayStr(t));
+  lcd.print(".");
+  lcd.print(monthStr(t));
+  lcd.print(".");
+  lcd.print(year(t));
+  lcd.setCursor(0, 1);
+  lcd.print(hour(t));
+  lcd.print(":");
+  lcd.print(minute(t));
+  lcd.print(":");
+  lcd.print(second(t));
   pinMode(12, OUTPUT);					// initialize output pin for camera release
 
   delay(2000);							// wait a moment...
@@ -105,7 +129,11 @@ void setup() {
 
   lcd.clear();
 }
-
+time_t requestSync()
+{
+	Serial.write(TIME_REQUEST);
+	return 0; // the time will be sent later in response to serial mesg
+}
 /**
    The main loop
 */
