@@ -87,6 +87,7 @@ void setup() {
   pinMode(BACK_LIGHT, OUTPUT);
   digitalWrite(BACK_LIGHT, HIGH);		// Turn backlight on.
 
+  Serial.begin(9600);
   lcd.begin(16, 2);
   lcd.clear();
   lcd.setCursor(0, 0);
@@ -234,46 +235,20 @@ void processKey() {
     case SCR_SHOTS:
 
       steps = keypad.ActNumShotsKeyRepeatRate();
+
       if ( localKey == UP ) {
-        /*if ( maxNoOfShots >= 2500 ) {
-          maxNoOfShots += 100;
-        } else if ( maxNoOfShots >= 1000 ) {
-          maxNoOfShots += 50;
-        } else if ( maxNoOfShots >= 100 ) {
-          maxNoOfShots += 25;
-        } else if ( maxNoOfShots >= 10 ) {
-          maxNoOfShots += 10;
-        } else {
-          maxNoOfShots ++;
-        }*/
-		  maxNoOfShots += steps;
-		  if (steps > 1) {
-			  maxNoOfShots = round(maxNoOfShots);
-		  }
+
+		maxNoOfShots += steps;
+
         if ( maxNoOfShots >= 9999 ) { // prevents screwing the ui
           maxNoOfShots = 9999;
         }
       }
 
       if ( localKey == DOWN ) {
-		/*
-        if ( maxNoOfShots > 2500 ) {
-          maxNoOfShots -= 100;
-        } else if ( maxNoOfShots > 1000 ) {
-          maxNoOfShots -= 50;
-        } else if ( maxNoOfShots > 100 ) {
-          maxNoOfShots -= 25;
-        } else if ( maxNoOfShots > 10 ) {
-          maxNoOfShots -= 10;
-        } else if ( maxNoOfShots > 0) {
-          maxNoOfShots -= 1;
-        } else {
-          maxNoOfShots = 0;
-        }*/
+
 		  maxNoOfShots -= steps;
-		  if (steps > 1) {
-			  maxNoOfShots = round(maxNoOfShots);
-		  }
+
 		  if (maxNoOfShots < 0) {
 			  maxNoOfShots = 0;
 		  }

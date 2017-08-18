@@ -45,7 +45,7 @@ LCD_Keypad_Reader::LCD_Keypad_Reader()
   _threshold = DEFAULT_THRESHOLD;
   _curInput = NO_KEY;
   _curKey = NO_KEY;
-  _numberOfIncrementations = 0;
+  _numberOfIncrementationsIntervalMenu = 0;
   RepeatRate = keyRepeatRateSlow;
 }
 
@@ -54,25 +54,24 @@ int LCD_Keypad_Reader::ActRepeatRate()
   RepeatRate -= keyRepeatRateStep;
   if (RepeatRate < keyRepeatRateHigh){
     RepeatRate = keyRepeatRateHigh;
-    if(_numberOfIncrementations > bonusGearTrigger){
+    if(_numberOfIncrementationsIntervalMenu > bonusGearTrigger){
       RepeatRate = KeyRepeatRateBonusGear;
     }
   }
-  //_numberOfIncrementations++;
+  _numberOfIncrementationsIntervalMenu++;
   return RepeatRate;
 }
 
 int LCD_Keypad_Reader::ActNumShotsKeyRepeatRate()
-{
-	if (_numberOfIncrementations / ceil(_numberOfIncrementations / 10.0) == 10 && NumShotsKeyRepeatRate < numShotsKeyRepeatRateMax) 
-	{
-		NumShotsKeyRepeatRate = NumShotsKeyRepeatRate*numShotsStepIncrementFactor;
-		if (NumShotsKeyRepeatRate > numShotsKeyRepeatRateMax) {
-			NumShotsKeyRepeatRate == numShotsKeyRepeatRateMax;
-		}
+{	
+	if (_numberOfIncrementationsShotsMenu < numShotsKeyRepeatRateMax) {
+		_numberOfIncrementationsShotsMenu ++;
 	}
-	_numberOfIncrementations++;
-	return NumShotsKeyRepeatRate;
+	if (_numberOfIncrementationsShotsMenu == 10) {
+		//Special case to keep us at the same last digit we started at.
+		return 1;
+	}
+	return round(pow(10, floor(log10(_numberOfIncrementationsShotsMenu))));
 }
 
 int LCD_Keypad_Reader::getKey()
@@ -102,8 +101,8 @@ int LCD_Keypad_Reader::categorizeKey(int analogKeyValue){
   }
   else{
     categorizedKeyValue = NO_KEY;
-	NumShotsKeyRepeatRate = numShotsKeyRepeatRateStart;
-    _numberOfIncrementations = 0;
+	_numberOfIncrementationsShotsMenu = 0;
+    _numberOfIncrementationsIntervalMenu = 0;
   }
 
   return categorizedKeyValue;
