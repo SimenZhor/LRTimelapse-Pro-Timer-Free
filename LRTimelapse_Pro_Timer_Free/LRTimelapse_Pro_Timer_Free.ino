@@ -56,6 +56,14 @@ unsigned long rampingStartTime = 0;		// ramping start time
 unsigned long rampingEndTime = 0;		// ramping end time
 float intervalBeforeRamping = 0;		// interval before ramping
 
+//Daily schedule variables
+time_t dailyStartTime;
+time_t dailyEndTime;
+
+time_t defaultDailyStartTime;
+time_t defaultDailyEndTime;
+
+
 boolean backLight = HIGH;				// The current settings for the backlight
 
 const int SCR_INTERVAL = 0;				// menu workflow constants
@@ -70,15 +78,23 @@ const int SCR_PAUSE = 5;
 const int SCR_RAMP_TIME = 6;
 const int SCR_RAMP_TO = 7;
 const int SCR_DONE = 8;
+const int SCR_SCHEDULE_START = 13;
+const int SCR_SCHEDULE_END = 14;
 
 // left side MENUS
 const int SCR_SINGLE = 11;
 
 const int MODE_M = 0;
 const int MODE_BULB = 1;
+const int MODE_SCHEDULE = 2;
 
+//Cursor positions on the lcd display for the schedule menus
+const int CURSOR_HOUR = 1;
+const int CURSOR_MINUTE = 4;
+const int CURSOR_SECOND = 7;
 
 int currentMenu = 0;					// the currently selected menu
+int currentCursorPos = CURSOR_HOUR;		// the position on the cursor in the schedule menus
 int settingsSel = 1;					// the currently selected settings option
 int mode = MODE_M;            // mode: M or Bulb
 
@@ -108,22 +124,28 @@ int EEPROMHasBeenWrittenToAddress = 0;
 int isRunningAddress = EEPROMHasBeenWrittenToAddress + 4;
 int intervalAddress = isRunningAddress + 4; 
 int currentMenuAddress = intervalAddress + 4;
-//int lastKeyCheckTimeAddress = currentMenuAddress + 4;
-//int lastKeyPressTimeAddress = lastKeyCheckTimeAddress + 4;
-int lastKeyPressedAddress = currentMenuAddress + 4;//lastKeyPressTimeAddress + 4;
+int lastKeyPressedAddress = currentMenuAddress + 4;
 int maxNoOfShotsAddress = lastKeyPressedAddress + 4;
 int rampToAddress = maxNoOfShotsAddress + 4;
 int imageCountAddress = rampToAddress + 4; // OVERFLOW DANGER! Keep in mind that this variable (imageCount) might overflow in long term projects. max number of pictures it can hold is: 2^32 = 2147483647
 int settingsSelAddress = imageCountAddress + 4;	
 int modeAddress = settingsSelAddress + 4;
 int releaseTimeAddress = modeAddress + 4;
-//int previousMillisAddress = releaseTimeAddress + 4;
-int runningTimeAddress = releaseTimeAddress + 4;//previousMillisAddress + 4;
+int runningTimeAddress = releaseTimeAddress + 4;
 int bulbReleasedAtAddress = runningTimeAddress + 4;
 int rampingStartTimeAddress = bulbReleasedAtAddress + 4;
 int rampingEndTimeAddress = rampingStartTimeAddress + 4;
 int rampDurationAddress = rampingEndTimeAddress + 4;
 int intervalBeforeRampingAddress = rampDurationAddress + 4;
+
+//The following variables should only be saved if an RTC module is available ( millis() will reset to zero and freeze the entire unit if these are saved now )
+int lastKeyCheckTimeAddress = intervalBeforeRampingAddress + 4;
+int lastKeyPressTimeAddress = lastKeyCheckTimeAddress + 4;
+int previousMillisAddress = lastKeyPressTimeAddress + 4;
+
+//The following variables are time_t types, I am pretty sure those are really "long"s
+int dailyStartTimeAddress = previousMillisAddress + 4;
+int dailyEndTimeAddress = dailyStartTimeAddress + 4;
 
 /**
    Initialize everything
@@ -139,6 +161,7 @@ void setup() {
   lcd.setCursor(0, 0);
   Serial.begin(9600);
   
+
   //Checking if values need to be read from the memory
   EEPROM.get(EEPROMHasBeenWrittenToAddress, EEPROMHasBeenWrittenTo);
   //Comment in the following line if you want to reset what has been written to the EEPROM to its default values 
@@ -147,6 +170,7 @@ void setup() {
 	  EEPROM.get(isRunningAddress, isRunning); //Gets the isRunning value manually because we don't want the delay below if its recovering from a power loss while running
   }
 
+  setSyncProvider(RTC.get);   // the function to get the time from the RTC
   if (!isRunning) {
 	  //Reasoning for this test above
 	  readTimeFromCompilerToRTCModule();
@@ -160,6 +184,19 @@ void setup() {
 	  readFromEEPROM();
 	  printScreen();
   }
+
+  //Set default values for the scheduler menu
+  tmElements_t tElm;
+  time_t t = now();
+  breakTime(t,tElm);
+  tElm.Hour = 6;
+  tElm.Minute = 0;
+  tElm.Second = 0;
+  defaultDailyStartTime = makeTime(tElm);
+  tElm.Hour = 18;
+  tElm.Minute = 0;
+  tElm.Second = 0;
+  defaultDailyEndTime = makeTime(tElm);
 
 }
 /**
@@ -183,7 +220,6 @@ void readTimeFromCompilerToRTCModule() {
 
 	while (!Serial); // wait for Arduino Serial Monitor
 	delay(200);
-	setSyncProvider(RTC.get);   // the function to get the time from the RTC
 	if (timeStatus() != timeSet) {
 		Serial.println("Unable to sync with the RTC");
 	}
@@ -389,14 +425,42 @@ void processKey() {
       else if( localKey == LEFT ){
         currentMenu = SCR_INTERVAL;
       }
-      else if( ( localKey == UP ) || ( localKey == DOWN ) ){
-        if( mode == MODE_M ){
-          mode = MODE_BULB;
-        } else {
-          mode = MODE_M;
-          releaseTime = RELEASE_TIME_DEFAULT;   // when switching to M-Mode, set the shortest shutter release time.
-        }
-      }
+	  else if (localKey == UP) {
+		  if (mode == MODE_M) {
+			  mode = MODE_BULB;
+		  }
+		  else if (mode == MODE_BULB) {
+			  if (true){// RTC.chipPresent()) {
+				  mode = MODE_SCHEDULE;
+			  }
+			  else {
+				  mode = MODE_M;
+				  releaseTime = RELEASE_TIME_DEFAULT;   // when switching to M-Mode, set the shortest shutter release time.
+			  }
+		  }
+		  else if (mode == MODE_SCHEDULE) {
+			  mode = MODE_M;
+			  releaseTime = RELEASE_TIME_DEFAULT;   // when switching to M-Mode, set the shortest shutter release time.
+		  }
+	  }
+	  else if (localKey == DOWN) {
+		  if (mode == MODE_M) {
+			  if (true){//RTC.chipPresent()) {
+				  mode = MODE_SCHEDULE;
+			  }
+			  else {
+				  mode = MODE_BULB;
+			  }
+		  }
+		  else if (mode == MODE_BULB) {
+			  mode = MODE_M;
+			  releaseTime = RELEASE_TIME_DEFAULT;   // when switching to M-Mode, set the shortest shutter release time.
+		  }
+		  else if (mode == MODE_SCHEDULE) {
+			  mode = MODE_BULB;
+		  }
+	  }
+      
 
       break;
 
@@ -445,9 +509,17 @@ void processKey() {
         if( mode == MODE_M ){
           currentMenu = SCR_RUNNING;
           firstShutter();
-        } else {
+        } else if (mode == MODE_BULB){
           currentMenu = SCR_EXPOSURE; // in Bulb mode ask for exposure
-        }
+		}
+		else if (mode == MODE_SCHEDULE) {
+		  currentMenu = SCR_SCHEDULE_START;
+
+		  //Set the daily schedule to default when coming from the left in the menu (if on this point in the menu or further right, the values are stored in memory)
+		  dailyStartTime = defaultDailyStartTime;
+		  dailyEndTime = defaultDailyEndTime;
+
+		}
       }
       break;
 
@@ -684,6 +756,101 @@ void processKey() {
         }
         break;
 
+	case SCR_SCHEDULE_START:
+		if (localKey == UP) {
+			dailyStartTime = updateScheduleTime(dailyStartTime, true);
+		}
+		else if (localKey == DOWN) {
+			dailyStartTime = updateScheduleTime(dailyStartTime, false);
+		}
+		else if (localKey == RIGHT) {
+			switch (currentCursorPos)
+			{
+			case CURSOR_HOUR:
+				currentCursorPos = CURSOR_MINUTE;
+				printScheduleStart();
+				break;
+
+			case CURSOR_MINUTE:
+				currentCursorPos = CURSOR_SECOND;
+				printScheduleStart();
+				break;
+
+			case CURSOR_SECOND:
+				currentMenu = SCR_SCHEDULE_END;
+				currentCursorPos = CURSOR_HOUR;
+				break;
+			}
+		}
+		else if (localKey == LEFT) {
+			switch (currentCursorPos)
+			{
+			case CURSOR_HOUR:
+				currentMenu = SCR_SHOTS;
+				lcd.noBlink();
+				lcd.clear();
+				break;
+
+			case CURSOR_MINUTE:
+				currentCursorPos = CURSOR_HOUR;
+				printScheduleStart();
+				break;
+
+			case CURSOR_SECOND:
+				currentCursorPos = CURSOR_MINUTE;
+				printScheduleStart();
+				break;
+			}
+		}
+		break;
+	case SCR_SCHEDULE_END:
+		if (localKey == UP) {
+			dailyEndTime = updateScheduleTime(dailyEndTime, true);
+		}
+		else if (localKey == DOWN) {
+			dailyEndTime = updateScheduleTime(dailyEndTime, false);
+		}
+		else if (localKey == RIGHT) {
+			switch (currentCursorPos)
+			{
+			case CURSOR_HOUR:
+				currentCursorPos = CURSOR_MINUTE;
+				printScheduleEnd();
+				break;
+
+			case CURSOR_MINUTE:
+				currentCursorPos = CURSOR_SECOND;
+				printScheduleEnd();
+				break;
+
+			case CURSOR_SECOND:
+				currentMenu = SCR_RUNNING;
+				lcd.noBlink();
+				lcd.clear();
+				firstShutter();
+				break;
+			}
+		}
+		else if (localKey == LEFT) {
+			switch (currentCursorPos)
+			{
+			case CURSOR_HOUR:
+				currentMenu = SCR_SCHEDULE_START;
+				currentCursorPos = CURSOR_SECOND;
+				break;
+
+			case CURSOR_MINUTE:
+				currentCursorPos = CURSOR_HOUR;
+				printScheduleEnd();
+				break;
+
+			case CURSOR_SECOND:
+				currentCursorPos = CURSOR_MINUTE;
+				printScheduleEnd();
+				break;
+			}
+		}
+		break;
   }
   printScreen();
 
@@ -701,8 +868,6 @@ void saveToEEPROM() {
 	EEPROM.put(intervalAddress, interval);
 	EEPROM.put(intervalBeforeRampingAddress, intervalBeforeRamping);
 	EEPROM.put(currentMenuAddress, currentMenu);
-	//EEPROM.put(lastKeyCheckTimeAddress, lastKeyCheckTime);
-	//EEPROM.put(lastKeyPressTimeAddress, lastKeyPressTime);
 	EEPROM.put(lastKeyPressedAddress, lastKeyPressed);
 	EEPROM.put(maxNoOfShotsAddress, maxNoOfShots);
 	EEPROM.put(rampToAddress, rampTo);
@@ -712,17 +877,29 @@ void saveToEEPROM() {
 
 	//Read times
 	EEPROM.put(releaseTimeAddress, releaseTime);
-	//EEPROM.put(previousMillisAddress, previousMillis);
 	EEPROM.put(runningTimeAddress, runningTime);
 	EEPROM.put(bulbReleasedAtAddress, bulbReleasedAt);
 	EEPROM.put(rampingStartTimeAddress, rampingStartTime);
 	EEPROM.put(rampingEndTimeAddress, rampingEndTime);
 	EEPROM.put(rampDurationAddress, rampDuration);
 
+	/*
+	//Only if RTC Module is installed
+	if (RTC.chipPresent()) {
+		Serial.println("RTC module detected, saving times");
+		EEPROM.put(lastKeyCheckTimeAddress, lastKeyCheckTime);
+		EEPROM.put(lastKeyPressTimeAddress, lastKeyPressTime);
+		EEPROM.put(previousMillisAddress, previousMillis);
+	}
+	*/
+
+	EEPROM.put(dailyStartTimeAddress, dailyStartTime);
+	EEPROM.put(dailyEndTimeAddress, dailyEndTime);
+	
 	//Mark the EEPROM as valid for future power-offs
 	EEPROMHasBeenWrittenTo = true;
 	EEPROM.put(EEPROMHasBeenWrittenToAddress, EEPROMHasBeenWrittenTo);
-	
+
 	Serial.println("Done saving to EEPROM");
 }
 
@@ -733,8 +910,6 @@ void readFromEEPROM() {
 	EEPROM.get(intervalAddress, interval);
 	EEPROM.get(intervalBeforeRampingAddress, intervalBeforeRamping);
 	EEPROM.get(currentMenuAddress, currentMenu);
-	//EEPROM.get(lastKeyCheckTimeAddress, lastKeyCheckTime);
-	//EEPROM.get(lastKeyPressTimeAddress, lastKeyPressTime);
 	EEPROM.get(lastKeyPressedAddress, lastKeyPressed);
 	EEPROM.get(maxNoOfShotsAddress, maxNoOfShots);
 	EEPROM.get(rampToAddress, rampTo);
@@ -744,12 +919,25 @@ void readFromEEPROM() {
 
 	//Save times
 	EEPROM.get(releaseTimeAddress, releaseTime);
-	//EEPROM.get(previousMillisAddress, previousMillis);
 	EEPROM.get(runningTimeAddress, runningTime);
 	EEPROM.get(bulbReleasedAtAddress, bulbReleasedAt);
 	EEPROM.get(rampingStartTimeAddress, rampingStartTime);
 	EEPROM.get(rampingEndTimeAddress, rampingEndTime);
 	EEPROM.get(rampDurationAddress, rampDuration);
+	
+	/*
+	//Only if RTC Module is installed
+	if (RTC.chipPresent()) {
+		Serial.println("RTC module detected, saving times");
+		EEPROM.get(lastKeyCheckTimeAddress, lastKeyCheckTime);
+		EEPROM.get(lastKeyPressTimeAddress, lastKeyPressTime);
+		EEPROM.get(previousMillisAddress, previousMillis);
+	}
+	*/
+
+	EEPROM.get(dailyStartTimeAddress, dailyStartTime);
+	EEPROM.get(dailyEndTimeAddress, dailyEndTime);
+
 	Serial.println("Done reading from EEPROM");
 }
 
@@ -828,6 +1016,14 @@ void printScreen() {
     case SCR_SINGLE:
       printSingleScreen();
       break;
+
+	case SCR_SCHEDULE_START:
+	  printScheduleStart();
+	  break;
+
+	case SCR_SCHEDULE_END:
+	  printScheduleEnd();
+	  break;
   }
 }
 
@@ -857,8 +1053,10 @@ void running() {
       imageCount++;
 
 	  EEPROM.put(runningTimeAddress, runningTime);
-	  //EEPROM.put(previousMillisAddress, previousMillis);
 	  EEPROM.put(imageCountAddress, imageCount);
+	  if (RTC.chipPresent()) {
+		//EEPROM.put(previousMillisAddress, previousMillis);
+	  }
     }
   }
 
@@ -999,10 +1197,25 @@ void printModeMenu() {
   lcd.setCursor(0, 0);
   lcd.print("Mode");
   lcd.setCursor(0, 1);
-  if( mode == MODE_M ){
-    lcd.print( "M (Default)     " );
-  } else {
-    lcd.print( "Bulb (Astro)    " );
+  switch (mode)
+  {
+	case MODE_M:
+
+		lcd.print("M (Default)     ");
+		break;
+
+	case MODE_BULB:
+
+		lcd.print("Bulb (Astro)    ");
+		break;
+
+	case MODE_SCHEDULE:
+
+		lcd.print("Daily schedule  ");
+		break;
+
+	default:
+		break;
   }
 }
 
@@ -1227,8 +1440,97 @@ void printRampToMenu() {
   lcd.print( "     " );
 }
 
+void printScheduleStart() {
+	lcd.setCursor(0, 0);
+	lcd.print("Daily start time");
 
+	lcd.setCursor(0, 1);
+	showTimeAsDigitalClock(dailyStartTime);
+	lcd.setCursor(currentCursorPos,1);
+	lcd.blink();
+}
 
+void printScheduleEnd(){
+	lcd.setCursor(0, 0);
+	lcd.print("Daily end time");
+
+	lcd.setCursor(0, 1);
+	showTimeAsDigitalClock(dailyEndTime);
+	lcd.setCursor(currentCursorPos, 1);
+	lcd.blink();
+}
+void showTimeAsDigitalClock(time_t t) {
+	// display the given time 
+	printDigits(hour(t));
+	lcd.print(":");
+	printDigits(minute(t));
+	lcd.print(":");
+	printDigits(second(t));
+	lcd.print("        ");
+}
+
+void printDigits(int digits) {
+	// utility function for digital clock display: prints preceding colon and leading 0
+	if (digits < 10)
+		lcd.print('0');
+	lcd.print(digits);
+}
+
+time_t updateScheduleTime(time_t t, bool timeShouldGoUp) {
+	breakTime(t, tm);
+	switch (currentCursorPos)
+	{
+	case CURSOR_HOUR:
+		if (timeShouldGoUp) {
+			if (tm.Hour == 23) {
+				tm.Hour = 0;
+			}
+			else {
+				tm.Hour++;
+			}
+		}
+		else {
+			if (tm.Hour == 0) tm.Hour = 24;
+			tm.Hour--;
+		}
+		
+		break;
+
+	case CURSOR_MINUTE:
+		if (timeShouldGoUp) {
+			if (tm.Minute == 59) {
+				tm.Minute = 0;
+			}
+			else {
+				tm.Minute++;
+			}
+		}
+		else {
+			if (tm.Minute == 0) tm.Minute = 60;
+			tm.Minute--;
+		}
+		break;
+
+	case CURSOR_SECOND:
+		if (timeShouldGoUp) {
+			if (tm.Second == 59) {
+				tm.Second = 0;
+			}
+			else {
+				tm.Second++;
+			}
+		}
+		else {
+			if (tm.Second == 0) tm.Second = 60;
+			tm.Second--;
+		}
+		break;
+
+	default:
+		break;
+	}
+	return t = makeTime(tm);
+}
 
 // ----------- HELPER METHODS -------------------------------------
 

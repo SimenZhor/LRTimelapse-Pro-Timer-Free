@@ -7,6 +7,7 @@
         "D:\\Programfiler\\Arduino\\libraries\\LiquidCrystal\\src",
         "D:\\Programfiler\\Arduino\\hardware\\arduino\\avr\\libraries\\EEPROM\\src",
         "D:\\Programfiler\\Arduino\\hardware\\arduino\\avr\\libraries\\Wire\\src",
+        "D:\\Programfiler\\Arduino\\hardware\\arduino\\avr\\libraries\\Wire\\src\\utility",
         "D:\\Programfiler\\Arduino\\libraries",
         "D:\\Programfiler\\Arduino\\hardware\\arduino\\avr\\libraries",
         "${projectRoot}..\\..\\..\\Arduino\\libraries",
