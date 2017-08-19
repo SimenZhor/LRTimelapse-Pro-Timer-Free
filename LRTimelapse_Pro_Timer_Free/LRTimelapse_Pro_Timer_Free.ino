@@ -127,7 +127,7 @@ int currentMenuAddress = intervalAddress + 4;
 int lastKeyPressedAddress = currentMenuAddress + 4;
 int maxNoOfShotsAddress = lastKeyPressedAddress + 4;
 int rampToAddress = maxNoOfShotsAddress + 4;
-int imageCountAddress = rampToAddress + 4; // OVERFLOW DANGER! Keep in mind that this variable (imageCount) might overflow in long term projects. max number of pictures it can hold is: 2^32 = 2147483647
+int imageCountAddress = rampToAddress + 4; // OVERFLOW DANGER! Keep in mind that this variable (imageCount) might overflow in long term projects. max number of pictures it can hold is: 2^31 = 2147483647
 int settingsSelAddress = imageCountAddress + 4;	
 int modeAddress = settingsSelAddress + 4;
 int releaseTimeAddress = modeAddress + 4;
