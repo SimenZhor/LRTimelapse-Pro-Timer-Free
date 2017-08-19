@@ -13,7 +13,9 @@
 #include <EEPROM.h> 					// used for saving variables to the small flash drive on the Arduino Uno
 #include "TimeLib.h"					// Version 1.5 in the files included in this project. Source: https://github.com/PaulStoffregen/Time
 #include "TimeAlarms.h"					// Version 1.5 in the files included in this project. Source: https://github.com/PaulStoffregen/TimeAlarms
+#include "DS1307RTC.h"					// For the DS1307 Real time clock module. Source: https://github.com/PaulStoffregen/DS1307RTC
 
+boolean EEPROMHasBeenWrittenTo = false; //Don't read invalid values from EEPROM if it hasn't been written to yet
 const String CAPTION = "Long term timer";
 
 LCD_Keypad_Reader keypad;
@@ -46,7 +48,7 @@ long maxNoOfShots = 0;
 int isRunning = 0;						// flag indicates intervalometer is running
 unsigned long bulbReleasedAt = 0;
 
-int imageCount = 0;                   	// Image count since start of intervalometer
+long imageCount = 0;                   	// Image count since start of intervalometer
 
 unsigned long rampDuration = 10;		// ramping duration
 float rampTo = 0.0;						// ramping interval
@@ -80,11 +82,48 @@ int currentMenu = 0;					// the currently selected menu
 int settingsSel = 1;					// the currently selected settings option
 int mode = MODE_M;            // mode: M or Bulb
 
-// Timer stuff
+// RTC module
 
-#define TIME_HEADER  "T"   // Header tag for serial time sync message
-#define TIME_REQUEST  7    // ASCII bell character requests a time sync message 
+const char *monthName[12] = {
+	"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+	"Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+};
 
+tmElements_t tm;
+
+/**
+	EEPROM addresses for saving 
+	
+	these are byte numbers, and:
+	ints require 2 bytes
+	longs require 4 bytes
+	floats require 4 bytes
+
+	However, I couldn't be arsed to check all the variable types and just gave everything 4 bytes.
+
+	When testing on an Arduino UNO the EEPROM.length() is 1024 bytes. If using another device double check that the EEPROM is large enough to handle saving
+*/
+
+int EEPROMHasBeenWrittenToAddress = 0;
+int isRunningAddress = EEPROMHasBeenWrittenToAddress + 4;
+int intervalAddress = isRunningAddress + 4; 
+int currentMenuAddress = intervalAddress + 4;
+//int lastKeyCheckTimeAddress = currentMenuAddress + 4;
+//int lastKeyPressTimeAddress = lastKeyCheckTimeAddress + 4;
+int lastKeyPressedAddress = currentMenuAddress + 4;//lastKeyPressTimeAddress + 4;
+int maxNoOfShotsAddress = lastKeyPressedAddress + 4;
+int rampToAddress = maxNoOfShotsAddress + 4;
+int imageCountAddress = rampToAddress + 4; // OVERFLOW DANGER! Keep in mind that this variable (imageCount) might overflow in long term projects. max number of pictures it can hold is: 2^32 = 2147483647
+int settingsSelAddress = imageCountAddress + 4;	
+int modeAddress = settingsSelAddress + 4;
+int releaseTimeAddress = modeAddress + 4;
+//int previousMillisAddress = releaseTimeAddress + 4;
+int runningTimeAddress = releaseTimeAddress + 4;//previousMillisAddress + 4;
+int bulbReleasedAtAddress = runningTimeAddress + 4;
+int rampingStartTimeAddress = bulbReleasedAtAddress + 4;
+int rampingEndTimeAddress = rampingStartTimeAddress + 4;
+int rampDurationAddress = rampingEndTimeAddress + 4;
+int intervalBeforeRampingAddress = rampDurationAddress + 4;
 
 /**
    Initialize everything
@@ -93,47 +132,148 @@ void setup() {
 
   pinMode(BACK_LIGHT, OUTPUT);
   digitalWrite(BACK_LIGHT, HIGH);		// Turn backlight on.
+  pinMode(12, OUTPUT);					// initialize output pin for camera release
 
   lcd.begin(16, 2);
   lcd.clear();
   lcd.setCursor(0, 0);
-
   Serial.begin(9600);
-  setSyncProvider(requestSync);
   
+  //Checking if values need to be read from the memory
+  EEPROM.get(EEPROMHasBeenWrittenToAddress, EEPROMHasBeenWrittenTo);
+  //Comment in the following line if you want to reset what has been written to the EEPROM to its default values 
+  //EEPROMHasBeenWrittenTo = false; 
+  if (EEPROMHasBeenWrittenTo) {
+	  EEPROM.get(isRunningAddress, isRunning); //Gets the isRunning value manually because we don't want the delay below if its recovering from a power loss while running
+  }
 
-  // print welcome screen))
-  /*
-  lcd.print("LRTimelapse.com");
-  lcd.setCursor(0, 1);
-  lcd.print( CAPTION );
-  */
-  time_t t = now();
-  lcd.print(dayStr(t));
-  lcd.print(".");
-  lcd.print(monthStr(t));
-  lcd.print(".");
-  lcd.print(year(t));
-  lcd.setCursor(0, 1);
-  lcd.print(hour(t));
-  lcd.print(":");
-  lcd.print(minute(t));
-  lcd.print(":");
-  lcd.print(second(t));
-  pinMode(12, OUTPUT);					// initialize output pin for camera release
+  if (!isRunning) {
+	  //Reasoning for this test above
+	  readTimeFromCompilerToRTCModule();
+	  delay(5000);							// Larger delay than usual because error messages for the RTC module are printed on the LCD
+	  Serial.println( CAPTION );
+	  lcd.clear();
+  }
 
-  delay(2000);							// wait a moment...
+  if (EEPROMHasBeenWrittenTo) {
+	  //This is not the first time the PRO-TIMER has been started, hence it has values saved in EEPROM
+	  readFromEEPROM();
+	  printScreen();
+  }
 
-  Serial.begin(9600);
-  Serial.println( CAPTION );
-
-  lcd.clear();
 }
-time_t requestSync()
+/**
+	Support functions for parsing date and time from the compiling computer at compile time.
+*/
+void readTimeFromCompilerToRTCModule() {
+	/**
+	Set up the RTC module and sync it with the time at the computer it was compiled by.
+	*/
+	bool parse = false;
+	bool config = false;
+
+	// get the date and time the compiler was run
+	if (getDate(__DATE__) && getTime(__TIME__)) {
+		parse = true;
+		// and configure the RTC with this info
+		if (RTC.write(tm)) {
+			config = true;
+		}
+	}
+
+	while (!Serial); // wait for Arduino Serial Monitor
+	delay(200);
+	setSyncProvider(RTC.get);   // the function to get the time from the RTC
+	if (timeStatus() != timeSet) {
+		Serial.println("Unable to sync with the RTC");
+	}
+	else {
+		Serial.println("RTC has set the system time");
+	}
+
+	if (parse && config) {
+		lcd.print("Time = ");
+		lcd.print(__TIME__);
+		lcd.setCursor(0, 1);
+		lcd.print("Date = ");
+		lcd.print(__DATE__);
+	}
+	else if (parse) {
+		lcd.print("RTC Comm. Error");
+		lcd.setCursor(0, 1);
+		lcd.print("Check circuitry");
+	}
+	else {
+		lcd.print("Time not parsed");
+		lcd.setCursor(0, 1);
+		lcd.print("T=\"");
+		lcd.print(__TIME__);
+		lcd.print("\", D=\"");
+		lcd.print(__DATE__);
+		lcd.print("\"");
+	}
+}
+bool getTime(const char *str)
 {
-	Serial.write(TIME_REQUEST);
-	return 0; // the time will be sent later in response to serial mesg
+	int Hour, Min, Sec;
+
+	if (sscanf(str, "%d:%d:%d", &Hour, &Min, &Sec) != 3) return false;
+	tm.Hour = Hour;
+	tm.Minute = Min;
+	tm.Second = Sec;
+	return true;
 }
+
+bool getDate(const char *str)
+{
+	char Month[12];
+	int Day, Year;
+	uint8_t monthIndex;
+
+	if (sscanf(str, "%s %d %d", Month, &Day, &Year) != 3) return false;
+	for (monthIndex = 0; monthIndex < 12; monthIndex++) {
+		if (strcmp(Month, monthName[monthIndex]) == 0) break;
+	}
+	if (monthIndex >= 12) return false;
+	tm.Day = Day;
+	tm.Month = monthIndex + 1;
+	tm.Year = CalendarYrToTm(Year);
+	return true;
+}
+/**
+	Function for reading time from the RTC chip
+void readTimeFromRTC() {
+	if (RTC.read(tm)) {
+		Serial.print("Ok, Time = ");
+		print2digits(tm.Hour);
+		Serial.write(':');
+		print2digits(tm.Minute);
+		Serial.write(':');
+		print2digits(tm.Second);
+		Serial.print(", Date (D/M/Y) = ");
+		Serial.print(tm.Day);
+		Serial.write('/');
+		Serial.print(tm.Month);
+		Serial.write('/');
+		Serial.print(tmYearToCalendar(tm.Year));
+		Serial.println();
+	}
+	else {
+		if (RTC.chipPresent()) {
+			Serial.println("The DS1307 is stopped.  Please run the SetTime");
+			Serial.println("example to initialize the time and begin running.");
+			Serial.println();
+		}
+		else {
+			Serial.println("DS1307 read error!  Please check the circuitry.");
+			Serial.println();
+		}
+		delay(9000);
+	}
+}
+*/
+
+
 /**
    The main loop
 */
@@ -257,6 +397,7 @@ void processKey() {
           releaseTime = RELEASE_TIME_DEFAULT;   // when switching to M-Mode, set the shortest shutter release time.
         }
       }
+
       break;
 
     case SCR_SHOTS:
@@ -545,6 +686,71 @@ void processKey() {
 
   }
   printScreen();
+
+  if (localKey != NONE) {
+	  saveToEEPROM();
+  }
+
+}
+
+void saveToEEPROM() {
+	Serial.println("Starting to save to EEPROM");
+
+	//Read current state:
+	EEPROM.put(isRunningAddress, isRunning);
+	EEPROM.put(intervalAddress, interval);
+	EEPROM.put(intervalBeforeRampingAddress, intervalBeforeRamping);
+	EEPROM.put(currentMenuAddress, currentMenu);
+	//EEPROM.put(lastKeyCheckTimeAddress, lastKeyCheckTime);
+	//EEPROM.put(lastKeyPressTimeAddress, lastKeyPressTime);
+	EEPROM.put(lastKeyPressedAddress, lastKeyPressed);
+	EEPROM.put(maxNoOfShotsAddress, maxNoOfShots);
+	EEPROM.put(rampToAddress, rampTo);
+	EEPROM.put(imageCountAddress, imageCount);
+	EEPROM.put(settingsSelAddress, settingsSel);
+	EEPROM.put(modeAddress, mode);
+
+	//Read times
+	EEPROM.put(releaseTimeAddress, releaseTime);
+	//EEPROM.put(previousMillisAddress, previousMillis);
+	EEPROM.put(runningTimeAddress, runningTime);
+	EEPROM.put(bulbReleasedAtAddress, bulbReleasedAt);
+	EEPROM.put(rampingStartTimeAddress, rampingStartTime);
+	EEPROM.put(rampingEndTimeAddress, rampingEndTime);
+	EEPROM.put(rampDurationAddress, rampDuration);
+
+	//Mark the EEPROM as valid for future power-offs
+	EEPROMHasBeenWrittenTo = true;
+	EEPROM.put(EEPROMHasBeenWrittenToAddress, EEPROMHasBeenWrittenTo);
+	
+	Serial.println("Done saving to EEPROM");
+}
+
+void readFromEEPROM() {
+	Serial.println("Starting to read from EEPROM");
+	//Save current state:
+	EEPROM.get(isRunningAddress, isRunning);
+	EEPROM.get(intervalAddress, interval);
+	EEPROM.get(intervalBeforeRampingAddress, intervalBeforeRamping);
+	EEPROM.get(currentMenuAddress, currentMenu);
+	//EEPROM.get(lastKeyCheckTimeAddress, lastKeyCheckTime);
+	//EEPROM.get(lastKeyPressTimeAddress, lastKeyPressTime);
+	EEPROM.get(lastKeyPressedAddress, lastKeyPressed);
+	EEPROM.get(maxNoOfShotsAddress, maxNoOfShots);
+	EEPROM.get(rampToAddress, rampTo);
+	EEPROM.get(imageCountAddress, imageCount);
+	EEPROM.get(settingsSelAddress, settingsSel);
+	EEPROM.get(modeAddress, mode);
+
+	//Save times
+	EEPROM.get(releaseTimeAddress, releaseTime);
+	//EEPROM.get(previousMillisAddress, previousMillis);
+	EEPROM.get(runningTimeAddress, runningTime);
+	EEPROM.get(bulbReleasedAtAddress, bulbReleasedAt);
+	EEPROM.get(rampingStartTimeAddress, rampingStartTime);
+	EEPROM.get(rampingEndTimeAddress, rampingEndTime);
+	EEPROM.get(rampDurationAddress, rampDuration);
+	Serial.println("Done reading from EEPROM");
 }
 
 void stopShooting(){
@@ -641,11 +847,18 @@ void running() {
       lcd.clear();
       printDoneScreen(); // invoke manually
       stopShooting();
+
+	  saveToEEPROM();
+
     } else { // is running
       runningTime += (millis() - previousMillis );
       previousMillis = millis();
       releaseCamera();
       imageCount++;
+
+	  EEPROM.put(runningTimeAddress, runningTime);
+	  //EEPROM.put(previousMillisAddress, previousMillis);
+	  EEPROM.put(imageCountAddress, imageCount);
     }
   }
 
@@ -664,10 +877,13 @@ void possiblyRampInterval() {
     if( releaseTime > interval - MIN_DARK_TIME ){ // if ramping makes the interval too short for the exposure time in bulb mode, adjust the exposure time
       releaseTime =  interval - MIN_DARK_TIME;
     }
-
+	EEPROM.put(intervalAddress, interval);
+	EEPROM.put(releaseTimeAddress, releaseTime);
   } else {
     rampingStartTime = 0;
     rampingEndTime = 0;
+	EEPROM.put(rampingStartTimeAddress, rampingStartTime);
+	EEPROM.put(rampingEndTimeAddress, rampingEndTime);
   }
 }
 
@@ -697,6 +913,7 @@ void releaseCamera() {
     // long trigger in Bulb-Mode for longer exposures
     if( bulbReleasedAt == 0 ){
         bulbReleasedAt = millis();
+		EEPROM.put(bulbReleasedAtAddress, bulbReleasedAt);
         digitalWrite(12, HIGH);
     }
   }
@@ -709,6 +926,7 @@ void releaseCamera() {
 void possiblyEndLongExposure(){
   if( ( bulbReleasedAt != 0 ) && ( millis() >= ( bulbReleasedAt + releaseTime * 1000 ) ) ){
     bulbReleasedAt = 0;
+	EEPROM.put(bulbReleasedAtAddress, bulbReleasedAt);
     digitalWrite(12, LOW);
   }
 
@@ -907,6 +1125,7 @@ void printSingleScreen(){
 
   } else { // running
     unsigned long runningTime = ( bulbReleasedAt + releaseTime * 1000 ) - millis();
+	EEPROM.put(runningTimeAddress, runningTime);
 
     int hours = runningTime / 1000 / 60 / 60;
     int minutes = ( runningTime / 1000 / 60 ) % 60;
