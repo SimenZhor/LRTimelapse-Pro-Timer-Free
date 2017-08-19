@@ -419,6 +419,13 @@ void processKey() {
       break;
 
     case SCR_MODE:
+	  if (mode == MODE_SCHEDULE) {
+		  if (!RTC.chipPresent()) {
+			  //remembers this mode from last time the Arduino was turned on and the chip has been removed since then
+			  mode = MODE_M;
+		  }
+	  }
+
       if ( localKey == RIGHT ) {
           currentMenu = SCR_SHOTS;
       }
@@ -430,7 +437,7 @@ void processKey() {
 			  mode = MODE_BULB;
 		  }
 		  else if (mode == MODE_BULB) {
-			  if (true){// RTC.chipPresent()) {
+			  if (RTC.chipPresent()) {
 				  mode = MODE_SCHEDULE;
 			  }
 			  else {
@@ -445,7 +452,7 @@ void processKey() {
 	  }
 	  else if (localKey == DOWN) {
 		  if (mode == MODE_M) {
-			  if (true){//RTC.chipPresent()) {
+			  if (RTC.chipPresent()) {
 				  mode = MODE_SCHEDULE;
 			  }
 			  else {
@@ -1114,9 +1121,9 @@ void releaseCamera() {
   previousMillis = millis();
   imageCount++;
   EEPROM.put(imageCountAddress, imageCount);
-  if (RTC.chipPresent()) {
-	  //EEPROM.put(previousMillisAddress, previousMillis);
-  }
+  /*if (RTC.chipPresent()) {
+	  EEPROM.put(previousMillisAddress, previousMillis);
+  }*/
 }
 
 /**
@@ -1279,10 +1286,12 @@ void printOutOfScheduleScreen() {
 	lcd.print("Paused, resuming");
 	lcd.setCursor(0, 1);
 	showTimeAsDigitalClock(dailyStartTime);
-	lcd.setCursor(9, 1);
+	int numWidth = floor(log10(imageCount)) == 0 ? 1 : floor(log10(imageCount));
+	lcd.setCursor(13 - numWidth, 1);
 	lcd.print("[");
 	lcd.print(imageCount);
 	lcd.print("]");
+	lcd.leftToRight();
 }
 
 void printDoneScreen() {
