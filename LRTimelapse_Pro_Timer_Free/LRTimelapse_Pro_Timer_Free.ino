@@ -12,7 +12,7 @@
 #include "LCD_Keypad_Reader.h"			// credits to: http://www.hellonull.com/?p=282
 #include <EEPROM.h> 					// used for saving variables to the small flash drive on the Arduino Uno
 #include "TimeLib.h"					// Version 1.5 in the files included in this project. Source: https://github.com/PaulStoffregen/Time
-#include "TimeAlarms.h"					// Version 1.5 in the files included in this project. Source: https://github.com/PaulStoffregen/TimeAlarms
+//#include "TimeAlarms.h"					// Version 1.5 in the files included in this project. Source: https://github.com/PaulStoffregen/TimeAlarms
 #include "DS1307RTC.h"					// For the DS1307 Real time clock module. Source: https://github.com/PaulStoffregen/DS1307RTC
 
 boolean EEPROMHasBeenWrittenTo = false; //Don't read invalid values from EEPROM if it hasn't been written to yet
