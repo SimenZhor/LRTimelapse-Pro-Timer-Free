@@ -319,3 +319,20 @@ void setSyncInterval(time_t interval){ // set the number of seconds between re-s
   syncInterval = (uint32_t)interval;
   nextSyncTime = sysTime + syncInterval;
 }
+
+bool thisIsBefore(time_t thisTime, time_t otherTime, bool ignoreDate) {
+	refreshCache(thisTime);
+	tmElements_t self = tm;
+	tmElements_t other;
+	breakTime(otherTime, other);
+
+	if (!ignoreDate) {
+		if (other.Year > self.Year) return true;
+		if (other.Month > self.Month) return true;
+		if (other.Day > self.Day) return true;
+	}
+	if (other.Hour > self.Hour) return true;
+	if (other.Minute > self.Minute) return true;
+	if (other.Second > self.Second) return true;
+	return false;
+}

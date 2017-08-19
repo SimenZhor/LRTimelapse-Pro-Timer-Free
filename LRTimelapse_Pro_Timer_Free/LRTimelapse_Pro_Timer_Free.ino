@@ -949,7 +949,6 @@ void stopShooting(){
 }
 
 void firstShutter(){
-  previousMillis = millis();
   runningTime = 0;
   isRunning = 1;
 
@@ -958,7 +957,6 @@ void firstShutter(){
 
   // do the first release instantly, the subsequent ones will happen in the loop
   releaseCamera();
-  imageCount++;
 }
 
 void printScreen() {
@@ -1048,15 +1046,11 @@ void running() {
 
     } else { // is running
       runningTime += (millis() - previousMillis );
-      previousMillis = millis();
+      //previousMillis = millis();
       releaseCamera();
-      imageCount++;
+      //imageCount++;
 
 	  EEPROM.put(runningTimeAddress, runningTime);
-	  EEPROM.put(imageCountAddress, imageCount);
-	  if (RTC.chipPresent()) {
-		//EEPROM.put(previousMillisAddress, previousMillis);
-	  }
     }
   }
 
@@ -1089,6 +1083,8 @@ void possiblyRampInterval() {
    Actually release the camera
 */
 void releaseCamera() {
+	
+  if (outsideScheduledTimeSpan())return;
 
   // short trigger in M-Mode
   if( releaseTime < 1 ){
@@ -1115,7 +1111,12 @@ void releaseCamera() {
         digitalWrite(12, HIGH);
     }
   }
-
+  previousMillis = millis();
+  imageCount++;
+  EEPROM.put(imageCountAddress, imageCount);
+  if (RTC.chipPresent()) {
+	  //EEPROM.put(previousMillisAddress, previousMillis);
+  }
 }
 
 /**
@@ -1241,6 +1242,10 @@ void printNoOfShotsMenu() {
 */
 void printRunningScreen() {
 
+  if (outsideScheduledTimeSpan()) {
+	  printOutOfScheduleScreen();
+	  return;
+  }
   lcd.setCursor(0, 0);
   lcd.print( printInt( imageCount, 4 ) );
 
@@ -1267,6 +1272,17 @@ void printRunningScreen() {
     lcd.print( " " );
   }
   lcd.print( printFloat( interval, 4, 1 ) );
+}
+
+void printOutOfScheduleScreen() {
+	lcd.setCursor(0, 0);
+	lcd.print("Paused, resuming");
+	lcd.setCursor(0, 1);
+	showTimeAsDigitalClock(dailyStartTime);
+	lcd.setCursor(9, 1);
+	lcd.print("[");
+	lcd.print(imageCount);
+	lcd.print("]");
 }
 
 void printDoneScreen() {
@@ -1559,4 +1575,31 @@ String printInt( int i, int total) {
   static char dtostrfbuffer[8];
   String s = dtostrf(f, total, 0, dtostrfbuffer);
   return s;
+}
+
+boolean outsideScheduledTimeSpan() {
+	
+	if (mode != MODE_SCHEDULE) return false;
+
+	if (thisIsBefore(dailyStartTime, dailyEndTime, true)) {
+		//StartTime is before EndTime, as expected.
+		if (thisIsBefore(dailyEndTime, now(), true) || thisIsBefore(now(), dailyStartTime, true)) {
+			//The time right now is after EndTime or before StartTime, meaning we're outside the scheduled time
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+	else {
+		//EndTime is before StartTime, meaning it operates during night
+		if (thisIsBefore(dailyEndTime, now(), true) && thisIsBefore(now(), dailyStartTime, true)) {
+			//The time right now is after EndTime, but before StartTime, meaning were outside the scheduled Time
+			return true;
+		}
+		else {
+			return false;
+		}
+
+	}
 }

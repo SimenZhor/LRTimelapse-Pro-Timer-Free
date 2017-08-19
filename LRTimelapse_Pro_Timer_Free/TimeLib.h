@@ -138,6 +138,9 @@ void    setSyncInterval(time_t interval); // set the number of seconds between r
 void breakTime(time_t time, tmElements_t &tm);  // break time_t into elements
 time_t makeTime(tmElements_t &tm);  // convert time elements into time_t
 
+/*Compare two time_t's*/
+bool thisIsBefore(time_t thisTime, time_t otherTime,bool ignoreDate);
+
 } // extern "C++"
 #endif // __cplusplus
 #endif /* _Time_h */
